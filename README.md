@@ -25,10 +25,9 @@ Input is read via stdin as 17 space-separated integers per line:
 |---|---|
 | **Search** | Minimax with alpha-beta pruning |
 | **Deepening** | Iterative deepening under a 450ms time budget |
-| **Heuristic** | Store difference (my store − opponent's store) |
-| **Extra turns** | Don't consume search depth — chains are explored fully |
-| **Terminal states** | Remaining stones swept into stores before scoring |
-| **Pie rule** | Supported — swaps board sides when invoked |
+| **Heuristic** | Delta between stores (player store − opponent store) |
+| **Terminal states** | Remaining stones counted into stores|
+| **Pie rule** | Swaps board sides when invoked |
 
 ### Game Loop
 
