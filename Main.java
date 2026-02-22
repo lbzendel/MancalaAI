@@ -1,7 +1,8 @@
-import java.math.*;
 public class Main {
-    // board layout: [p1_1..p1_6, p1Store, p2_1..p2_6, p2Store] = 14 slots
-    // input: p1_1..p1_6 p1Store p2_1..p2_6 p2Store turn playerID pie  (17 ints)
+
+    static long deadline; // time limit for search
+
+    static class TimeoutException extends RuntimeException {}
 
     static class GameState {
         int[] board;
@@ -18,27 +19,32 @@ public class Main {
     }
 
     public static void main(String[] args) {
-        java.util.Scanner sc = new java.util.Scanner(System.in);
-        while (sc.hasNextLine()) {
-            if (!sc.hasNextInt()) {
-                sc.nextLine();
-                continue;
+        java.io.BufferedReader br = new java.io.BufferedReader(new java.io.InputStreamReader(System.in));
+        String line;
+        try {
+            while ((line = br.readLine()) != null) {
+                line = line.trim();
+                if (line.isEmpty()) continue;
+                String[] parts = line.split("\\s+");
+                if (parts.length != 17) continue;
+                GameState state = parseGameState(parts);
+                int move = bestMove(state);
+                System.out.println(move);
+                System.out.flush();
             }
-            GameState state = parseGameState(sc);
-            int move = bestMove(state, 3);
-            System.out.println(move);
-    
+        } catch (java.io.IOException e) {
+            // stdin closed, exit
         }
     }
 
-    public static GameState parseGameState(java.util.Scanner sc) {
+    public static GameState parseGameState(String[] parts) {
         int[] board = new int[14];
         for (int i = 0; i < 14; i++) {
-            board[i] = sc.nextInt();
+            board[i] = Integer.parseInt(parts[i]);
         }
-        int turn     = sc.nextInt();
-        int playerID = sc.nextInt();
-        int pie      = sc.nextInt();
+        int turn     = Integer.parseInt(parts[14]);
+        int playerID = Integer.parseInt(parts[15]);
+        int pie      = Integer.parseInt(parts[16]);
         return new GameState(board, turn, playerID, pie);
     }
 
@@ -46,7 +52,7 @@ public class Main {
     public static java.util.List<Integer> legalMoves(GameState s) {
         java.util.List<Integer> moves = new java.util.ArrayList<>();
         if (s.pie == 1) {
-            moves.add(0); // pie rule
+            moves.add(0); 
         }
         int start = (s.playerID == 1) ? 0 : 7;
         for (int i = 0; i < 6; i++) {
@@ -105,7 +111,7 @@ public class Main {
     }
 
 
-    public static boolean isTerminal(GameState s) { // checks if the game has ended
+    public static boolean isTerminal(GameState s) {
         boolean p1Empty = true, p2Empty = true;
         for (int i = 0; i < 6; i++) {
             if (s.board[i] > 0) p1Empty = false;
@@ -114,7 +120,20 @@ public class Main {
         return p1Empty || p2Empty;
     }
 
+    public static int finalScore(GameState s, int maxPlayer) {
+        // Sweep remaining stones into stores
+        int p1Total = s.board[6];
+        int p2Total = s.board[13];
+        for (int i = 0; i < 6; i++) {
+            p1Total += s.board[i];
+            p2Total += s.board[7 + i];
+        }
+        if (maxPlayer == 1) return p1Total - p2Total;
+        else return p2Total - p1Total;
+    }
+
     public static int evaluate(GameState s, int maxPlayer) {
+        if (isTerminal(s)) return finalScore(s, maxPlayer);
         if (maxPlayer == 1) {
             return s.board[6] - s.board[13];
         } else {
@@ -123,6 +142,7 @@ public class Main {
     }
 
     public static int minimax(GameState s, int depth, int alpha, int beta, int maxPlayer) {
+        if (System.currentTimeMillis() >= deadline) throw new TimeoutException();
         if (depth == 0 || isTerminal(s)) { // if the game is over or we've reached max depth, evaluate the board
             return evaluate(s, maxPlayer); 
         }
@@ -137,10 +157,12 @@ public class Main {
             int best = Integer.MIN_VALUE;
             for (int move : moves) {
                 GameState child = applyMove(s, move);
-                int score = minimax(child, depth - 1, alpha, beta, maxPlayer);
+                // Don't decrement depth on extra turns (same player moves again)
+                int nextDepth = (child.playerID == s.playerID) ? depth : depth - 1;
+                int score = minimax(child, nextDepth, alpha, beta, maxPlayer);
                 best = Math.max(best, score);
                 alpha = Math.max(alpha, score);
-                if (beta <= alpha) break; // prune branches where alpha is greater than or equal to beta (opponent has a better option)
+                if (beta <= alpha) break;
             }
             return best;
         } else {
@@ -148,7 +170,8 @@ public class Main {
             int best = Integer.MAX_VALUE;
             for (int move : moves) {
                 GameState child = applyMove(s, move);
-                int score = minimax(child, depth - 1, alpha, beta, maxPlayer);
+                int nextDepth = (child.playerID == s.playerID) ? depth : depth - 1;
+                int score = minimax(child, nextDepth, alpha, beta, maxPlayer);
                 best = Math.min(best, score);
                 beta = Math.min(beta, score);
                 if (beta <= alpha) break;
@@ -157,18 +180,32 @@ public class Main {
         }
     }
 
-    // wrapper class that runs minimax and returns the best move
-    public static int bestMove(GameState s, int depth) {
+    // iterative deepening: search deeper until time runs out
+    public static int bestMove(GameState s) {
+        deadline = System.currentTimeMillis() + 450; // 450ms to leave margin
         java.util.List<Integer> moves = legalMoves(s);
-        int bestScore = Integer.MIN_VALUE;
-        int bestMove = moves.get(0);
+        int bestMove = moves.get(0); // fallback
 
-        for (int move : moves) {
-            GameState child = applyMove(s, move);
-            int score = minimax(child, depth - 1, Integer.MIN_VALUE, Integer.MAX_VALUE, s.playerID);
-            if (score > bestScore) {
-                bestScore = score;
-                bestMove = move;
+        for (int depth = 1; depth <= 50; depth++) {
+            try {
+                int bestScore = Integer.MIN_VALUE;
+                int candidate = moves.get(0);
+                for (int move : moves) {
+                    GameState child = applyMove(s, move);
+                    int score = minimax(child, depth - 1, Integer.MIN_VALUE, Integer.MAX_VALUE, s.playerID);
+                    if (score > bestScore) {
+                        bestScore = score;
+                        candidate = move;
+                    }
+                }
+                bestMove = candidate;  // if completed search at depth i, update best move - prevents using move from incomplete deeper search
+            } catch (TimeoutException e) {
+                System.out.println("Time limit reached at depth " + depth);
+                break;
+            }
+            if (System.currentTimeMillis() >= deadline) {
+                System.out.println("Time limit reached at depth " + depth);
+                break;
             }
         }
         return bestMove;
